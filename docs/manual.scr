@@ -4,6 +4,7 @@
 This is the top-level for my various lisp projects.
 
 @begin(list)
+@item(@link[uri="/binary/"](binary) - functions for reading and writing integers from binary streams.)
 @item(@link[uri="/kutils/"](kutils) - my personal utility library.)
 @end(list)
 

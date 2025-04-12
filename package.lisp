@@ -3,6 +3,7 @@
 (defpackage #:mcodex
   (:use #:cl)
   (:export #:rsync
+	   #:doc-path
            #:build-site
            #:deploy-site
            #:publish-site

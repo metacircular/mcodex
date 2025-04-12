@@ -11,7 +11,11 @@
 
 (in-package :mcodex)
 
-(defparameter *doc-path* "docs/build/mcodex/html/"
+(defun doc-path (&optional (package (package-name *package*)))
+  "Return the default documentation path for the current package."
+  (format nil "docs/build/~a/html/" (string-downcase package)))
+
+(defparameter *doc-path* (doc-path)
   "Default local directory for Codex-generated documentation.")
 (defparameter *top-level* "/srv/www/codex/"
   "Default remote base directory for deployed documentation.")
@@ -148,7 +152,8 @@ Notes:
       (error "Package name must not be empty"))
     (if (string-equal pkg-str "mcodex")
         *top-level*
-        (format nil "~A~A/" *top-level* pkg-str))))
+        (uiop:ensure-directory-pathname
+	 (format nil "~A~A/" *top-level*  pkg-str)))))
 
 (defun publish-site (&key (path *doc-path*)
                           (site (format nil "web.metacircular.net:~A" (mcodex-path)))
@@ -200,13 +205,16 @@ Notes:
 (defun build-and-publish (&optional (package (package-name *package*)))
   "Build and publish a site for PACKAGE with a package-specific remote path.
 
+
 Parameters:
   PACKAGE (string or symbol, optional): The package or system to document and deploy.
     Defaults to the current package’s name (via `package-name` and `*package*`).
 
+
 Returns:
   `nil` if the build and deployment succeed, or `nil` if either fails, with errors printed
     to `*error-output*`.
+
 
 Description:
   A high-level wrapper around `publish-site` that uses `mcodex-path` to determine the
@@ -215,9 +223,11 @@ Description:
   Simplifies deployment for clients who want package-specific paths (e.g., /srv/www/codex/test/
   for :test) without specifying paths manually.
 
+
 Example:
   (build-and-publish)         ; Builds and deploys to .../codex/ for mcodex.
   (build-and-publish \"test\") ; Builds and deploys to .../codex/test/.
+
 
 Notes:
   - Assumes `publish-site` and `mcodex-path` are available.
