@@ -1,0 +1,27 @@
+@begin(section)
+@title(Index)
+
+This is the top-level for my various lisp projects.
+
+@begin(list)
+@item(@link[uri="/kutils/"](kutils) - my personal utility library.)
+@end(list)
+
+@end(section)
+
+@begin(section)
+@title(mcodex tools)
+
+mcodex also defines some tooling for building and maintaining codex
+documentation.
+
+@cl:with-package[name="mcodex"](
+@cl:doc(function rsync)
+@cl:doc(function build-site)
+@cl:doc(function deploy-site)
+@cl:doc(function publish-site)
+@cl:doc(function mcodex-path)
+@cl:doc(function build-and-publish)
+)
+
+@end(section)
