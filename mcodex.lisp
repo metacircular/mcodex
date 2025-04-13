@@ -15,14 +15,20 @@
   "Return the default documentation path for the current package."
   (format nil "docs/build/~a/html/" (string-downcase package)))
 
+(define-condition invalid-delete-argument (error) ()
+  (:report "delete must be one of :before :during :after or nil"))
+
 (defparameter *doc-path* (doc-path)
   "Default local directory for Codex-generated documentation.")
 (defparameter *top-level* "/srv/www/codex/"
   "Default remote base directory for deployed documentation.")
-(defparameter *ssh-host* (format nil "web.metacircular.net:~A" *top-level*)
+(defparameter *ssh-host* "web.metacircular.net"
   "Default remote host and path for rsync deployment.")
 
-(defun rsync (path site)
+(defun remote-directory (host destination)
+  (format nil "~a:~a" host (uiop:ensure-directory-pathname destination)))
+
+(defun rsync (path site &key (delete nil))
   "Synchronize a local PATH directory to a remote SITE using rsync.
 
 Parameters:
@@ -30,6 +36,8 @@ Parameters:
     documentation (e.g., `*doc-path*` = \"docs/build/mcodex/html/\").
   SITE (string): The remote destination in rsync-compatible format, including the host
     and path (e.g., `*ssh-host*` = \"web.metacircular.net:/srv/www/codex/\").
+  DELETE (keyword): One of :before, :during, :after, or nil. Specifies whether rsync
+    should delete files that don't exist in PATH.
 
 Returns:
   `nil` on successful synchronization (rsync exit code 0), or `nil` if an error occurs,
@@ -54,14 +62,28 @@ Notes:
   - Assumes SSH access to the remote host (e.g., key-based authentication).
   - Does not validate PATH or SITE; ensure PATH exists and SITE is accessible.
   - Verbose output (`--progress`, `-v`) aids monitoring but may clutter logs."
-  (handler-case
-      (uiop:run-program
-       `("rsync" "--progress" "-auvz" ,path ,site)
-       :output t
-       :error-output t)
-    (error (e)
-      (format *error-output* "Error during rsync: ~A~%" e)
-      nil)))
+  (let ((delete-argument
+	  (case delete
+	    (:before "--delete-before")
+	    (:during "--delete-during")
+	    (:after  "--delete-after")
+	    ((nil)     "")
+	    (t       (progn
+		       (format t "argument: ~a~%" delete)
+		       (error 'invalid-delete-argument))))))
+      (handler-case
+	  (progn
+	    (format t "path: ~a~%" path)
+	    (uiop:run-program
+	     (remove-if (lambda (s) (eql 0 (length s)))
+			`("rsync" "--progress"
+				  ,(when delete-argument delete-argument)
+				  "-auvz" ,path ,site))
+	     :output t
+	     :error-output t))
+	(error (e)
+	  (format *error-output* "Error during rsync: ~A~%" e)
+	  nil))))
 
 (defun build-site (&optional (package (package-name *package*)))
   "Generate documentation for a specified PACKAGE using the Codex documentation system.
@@ -90,34 +112,6 @@ Notes:
   - Output directory is set by Codex (typically `*doc-path*` = \"docs/build/mcodex/html/\").
   - Errors from `codex:document` are not caught; wrap with `handler-case` if needed."
   (codex:document (intern (string package) :keyword)))
-
-(defun deploy-site (&optional (source *doc-path*) (destination *ssh-host*))
-  "Deploy a local SOURCE directory to a remote DESTINATION using rsync.
-
-Parameters:
-  SOURCE (string, optional): The local directory to synchronize, typically where Codex
-    outputs documentation. Defaults to `*doc-path*` (\"docs/build/mcodex/html/\").
-  DESTINATION (string, optional): The remote rsync destination (host:path format).
-    Defaults to `*ssh-host*` (\"web.metacircular.net:/srv/www/codex/\").
-
-Returns:
-  `nil` on successful deployment (rsync exit code 0), or `nil` if an error occurs,
-    with error details printed to `*error-output*`.
-
-Description:
-  Calls `rsync` to transfer files from SOURCE to DESTINATION, providing a convenient
-  wrapper for deployment tasks. Suitable for standalone use or as part of `publish-site`.
-  Clients can override defaults to deploy to custom locations.
-
-Example:
-  (deploy-site)                           ; Deploys *doc-path* to *ssh-host*.
-  (deploy-site \"my/docs/\" \"otherserver:/var/www\") ; Custom source and destination.
-
-Notes:
-  - Inherits `rsync`’s requirements: rsync installed, SSH configured.
-  - Does not validate SOURCE or DESTINATION; ensure they are valid.
-  - Verbose rsync output is enabled for monitoring."
-  (rsync source destination))
 
 (defun mcodex-path (&optional (package (package-name *package*)))
   "Generate a remote path for storing a site’s files under *top-level*, based on PACKAGE.
@@ -155,8 +149,37 @@ Notes:
         (uiop:ensure-directory-pathname
 	 (format nil "~A~A/" *top-level*  pkg-str)))))
 
-(defun publish-site (&key (path *doc-path*)
-                          (site (format nil "web.metacircular.net:~A" (mcodex-path)))
+(defun deploy-site (&key (destination *ssh-host*)
+			 (package (package-name *package*)))
+  "Deploy a local SOURCE directory to a remote DESTINATION using rsync.
+
+Parameters:
+  SOURCE (string, optional): The local directory to synchronize, typically where Codex
+    outputs documentation. Defaults to `*doc-path*` (\"docs/build/mcodex/html/\").
+  DESTINATION (string, optional): The remote rsync destination (host:path format).
+    Defaults to `*ssh-host*` (\"web.metacircular.net:/srv/www/codex/\").
+
+Returns:
+  `nil` on successful deployment (rsync exit code 0), or `nil` if an error occurs,
+    with error details printed to `*error-output*`.
+
+Description:
+  Calls `rsync` to transfer files from SOURCE to DESTINATION, providing a convenient
+  wrapper for deployment tasks. Suitable for standalone use or as part of `publish-site`.
+  Clients can override defaults to deploy to custom locations.
+
+Example:
+  (deploy-site)                           ; Deploys *doc-path* to *ssh-host*.
+  (deploy-site \"my/docs/\" \"otherserver:/var/www\") ; Custom source and destination.
+
+Notes:
+  - Inherits `rsync`’s requirements: rsync installed, SSH configured.
+  - Does not validate SOURCE or DESTINATION; ensure they are valid.
+  - Verbose rsync output is enabled for monitoring."
+  (let ((source (doc-path package)))
+    (rsync source (remote-directory destination (mcodex-path package)))))
+
+(defun publish-site (&key (site *ssh-host*)
                           (package (package-name *package*)))
   "Build and publish a site by generating documentation and deploying it to a remote server.
 
@@ -192,7 +215,9 @@ Notes:
   - Does not validate inputs; ensure PATH exists and SITE is accessible.
   - Requires SSH configuration for rsync."
   (format t "Building site for package ~A...~%" package)
-  (let ((build-result (build-site package)))
+  (let ((build-result (build-site package))
+	(path         (doc-path package))
+	(destination  (remote-directory site (mcodex-path package))))
     (if build-result
         (progn
 	  (format *error-output* "build-result: ~a~%" build-result)
@@ -200,7 +225,7 @@ Notes:
           nil)
 	(progn
           (format t "Deploying site from ~A to ~A...~%" path site)
-          (rsync path site)))))
+          (rsync path destination)))))
 
 (defun build-and-publish (&optional (package (package-name *package*)))
   "Build and publish a site for PACKAGE with a package-specific remote path.
